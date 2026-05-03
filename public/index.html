@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>影院场次监控</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;color:#333}
+header{background:#1a1a2e;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+header h1{color:#fff;font-size:18px;font-weight:600}
+header h1 span{color:#e94560}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+select,button{padding:6px 12px;border:none;border-radius:4px;font-size:13px;outline:none}
+select{background:#fff;color:#333;border:1px solid #ddd}
+button{background:#e94560;color:#fff;cursor:pointer;transition:background .2s}
+button:hover{background:#c73151}
+button.active{background:#4ecca3}
+.status{padding:8px 24px;background:#16213e;color:#aaa;font-size:12px;display:flex;justify-content:space-between}
+.status span:last-child{color:#4ecca3}
+main{padding:16px 24px}
+.table-wrap{overflow-x:auto;border-radius:8px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead tr{background:#f0f0f5}
+th{padding:10px 12px;text-align:left;font-weight:600;color:#555;white-space:nowrap;position:sticky;top:0;background:#f0f0f5;z-index:2;cursor:pointer;user-select:None}
+th:hover{background:#e0e0ea}
+th[data-sort]::after{content:' ⇅';opacity:0.4;font-size:11px}
+th[data-sort="asc"]::after{content:' ↑';opacity:1}
+th[data-sort="desc"]::after{content:' ↓';opacity:1}
+td{padding:9px 12px;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+tbody tr:hover{background:#fafafa;cursor:pointer}
+tbody tr:hover td{background:#fef3f4}
+tr.good td{background:#e8f5e9}
+tr.warn td{background:#fff8e1}
+tr.full td{background:#ffebee}
+tr.good:hover td{background:#e8f5e9!important}
+tr.warn:hover td{background:#fff8e1!important}
+tr.full:hover td{background:#ffebee!important}
+.score{color:#e94560;font-weight:600}
+.name{font-weight:600;color:#222}
+.time{font-weight:600;color:#1a1a2e}
+.price{color:#e94560;font-weight:700}
+.hall{color:#777;font-size:12px}
+.td-small{font-size:12px;color:#888}
+.seat-bar{width:100px;height:12px;border-radius:6px;vertical-align:middle;margin-right:8px;overflow:hidden;background:#eee}
+.seat-bar-fill{height:100%;border-radius:6px}
+.seat-bar-fill.warn{background:#ffc107}
+.seat-bar-fill.full{background:#e94560}
+.empty-state{padding:60px;text-align:center;color:#999;font-size:14px}
+.loading{text-align:center;padding:40px;color:#888}
+.error-msg{color:#e94560;font-size:12px;margin-top:4px}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:center}
+.modal.show{display:flex}
+.modal-box{background:#fff;border-radius:12px;width:90vw;max-width:700px;max-height:90vh;overflow:auto;padding:24px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-header h2{font-size:16px;color:#222}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#888}
+.seat-map{font-family:'Courier New',monospace;line-height:1.4;font-size:13px;white-space:pre;color:#444}
+.legend{margin-top:12px;font-size:12px;color:#888}
+.legend span{margin-right:16px}
+.legend .sq{color:#4ecca3}
+.legend .sd{color:#ddd}
+.legend .so{color:#e94560}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 影院场次监控 <span>| 实时可售</span></h1>
+  <div class="controls">
+    <input type="date" id="dateFilter" style="padding:6px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px">
+    <select id="cityFilter"><option value="">全部城市</option></select>
+    <select id="cinemaFilter"><option value="">全部影院</option></select>
+    <select id="movieFilter"><option value="">全部电影</option></select>
+    <button id="refreshBtn">🔍 查询</button>
+    <button id="loginBtn">🔐 登录猫眼</button>
+    <span id="loginStatus" style="color:#4ecca3;font-size:12px;display:none"></span>
+  </div>
+</header>
+<div class="status">
+  <span>共 <b id="totalShows">0</b> 场 / <b id="totalCinemas">0</b> 家影院</span>
+  <span id="lastUpdate">加载中...</span>
+</div>
+<main>
+  <div class="table-wrap">
+    <table id="showsTable">
+      <thead>
+        <tr>
+          <th data-key="cityName" data-sort="">城市</th>
+          <th data-key="cinemaName" data-sort="">影院</th>
+          <th data-key="movieName" data-sort="">电影</th>
+          <th data-key="score" data-sort="">评分</th>
+          <th data-key="dur" data-sort="">时长</th>
+          <th data-key="time" data-sort="">时间</th>
+          <th data-key="lang" data-sort="">语言</th>
+          <th data-key="hall" data-sort="">影厅</th>
+          <th data-key="tp" data-sort="">版本</th>
+          <th data-key="price" data-sort="">票价</th>
+          <th data-key="total" data-sort="">总座位</th>
+          <th data-key="sold" data-sort="">已售</th>
+          <th data-key="rate" data-sort="">上座率</th>
+        </tr>
+      </thead>
+      <tbody id="showsBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState" style="display:none">暂无数据</div>
+  </div>
+</main>
+<div class="modal" id="seatMapModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">座位图</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div id="seatMapContent"></div>
+    <div class="legend">
+      <span class="sq">□ 可售</span>
+      <span class="sd">■ 已售</span>
+      <span class="so">● 情侣座</span>
+    </div>
+  </div>
+</div>
+<div class="modal" id="loginModal">
+  <div class="modal-box" style="max-width:400px">
+    <div class="modal-header">
+      <h2>登录猫眼账号</h2>
+      <button class="modal-close" onclick="closeLoginModal()">×</button>
+    </div>
+    <div style="padding:8px 0">
+      <p style="margin-bottom:12px;font-size:13px;color:#666">
+        点击下方链接获取 Token：<br>
+        <a href="https://m.maoyan.com/mtrade/openclaw/token" target="_blank" style="color:#e94560">https://m.maoyan.com/mtrade/openclaw/token</a>
+      </p>
+      <textarea id="authTokenInput" placeholder="粘贴 Token 到此处" rows="3" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;resize:vertical"></textarea>
+      <div id="loginError" style="color:#e94560;font-size:12px;margin-top:8px;display:none"></div>
+      <button id="doLoginBtn" style="margin-top:12px;padding:8px 20px;background:#e94560;color:#fff;border:none;border-radius:4px;cursor:pointer">确认登录</button>
+    </div>
+  </div>
+</div>
+<script>
+let allData = [];
+let autoInterval = null;
+let autoOn = false;
+let seatCountCache = {};
+const STORAGE_KEY = 'cinema_shows_data';
+
+function saveToStorage() {
+  const minimal = allData.map(c => ({
+    cinemaId: c.cinemaId,
+    cinemaName: c.cinemaName,
+    cityId: c.cityId,
+    cityName: c.cityName,
+    movies: c.movies.map(m => ({
+      movieId: m.movieId,
+      name: m.name,
+      score: m.score,
+      dur: m.dur,
+      shows: m.shows
+    }))
+  }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ allData: minimal, seatCounts: seatCountCache, savedAt: Date.now() }));
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data;
+  } catch { return null; }
+}
+
+const REFRESH_MS = 60 * 1000;
+
+async function loadShows() {
+  document.getElementById('showsBody').innerHTML = '<tr><td colspan="13" class="loading">加载中...</td></tr>';
+  seatCountCache = {};
+  try {
+    const dateFilter = document.getElementById('dateFilter').value;
+    const url = '/api/shows' + (dateFilter ? '?date=' + dateFilter : '');
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    allData = json.data;
+    saveToStorage();
+    updateFilters();
+    document.getElementById('lastUpdate').textContent = '更新于 ' + new Date().toLocaleTimeString();
+    document.getElementById('totalCinemas').textContent = allData.length;
+    let totalShows = 0;
+    allData.forEach(c => c.movies.forEach(m => totalShows += m.shows.length));
+    document.getElementById('totalShows').textContent = totalShows;
+  } catch (e) {
+    document.getElementById('showsBody').innerHTML = `<tr><td colspan="13" class="error-msg">加载失败: ${e.message}</td></tr>`;
+  }
+}
+
+async function loadSeatCounts() {
+  const seqNos = [];
+  allData.forEach(c => c.movies.forEach(m => m.shows.forEach(s => seqNos.push(s.seqNo))));
+
+  try {
+    const res = await fetch('/api/seat-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seqNos })
+    });
+    const json = await res.json();
+    if (json.success) {
+      seatCountCache = json.data;
+      saveToStorage();
+      renderTable();
+    }
+  } catch (e) {
+    console.warn('Seat counts failed:', e.message);
+  }
+}
+
+async function loadSeatCountsForFiltered() {
+  const data = getFilteredData();
+  const seqNos = [];
+  data.forEach(c => c.movies.forEach(m => m.shows.forEach(s => seqNos.push(s.seqNo))));
+
+  try {
+    const res = await fetch('/api/seat-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seqNos })
+    });
+    const json = await res.json();
+    if (json.success) {
+      Object.assign(seatCountCache, json.data);
+    }
+  } catch (e) {
+    console.warn('Seat counts failed:', e.message);
+  }
+}
+
+function updateFilters() {
+  const city = document.getElementById('cityFilter').value;
+  const movies = [...new Set(allData.flatMap(d => d.movies.map(m => m.name)))].sort();
+
+  const citySel = document.getElementById('cityFilter');
+  const cinemaSel = document.getElementById('cinemaFilter');
+  const movieSel = document.getElementById('movieFilter');
+
+  const selCity = citySel.value;
+  const selCinema = cinemaSel.value;
+  const selMovie = movieSel.value;
+
+  citySel.innerHTML = '<option value="">全部城市</option>' + [...new Set(allData.map(d => d.cityName))].sort().map(c => `<option value="${c}">${c}</option>`).join('');
+  cinemaSel.innerHTML = '<option value="">全部影院</option>' + [...new Set(allData.filter(d => !city || d.cityName === city).map(d => d.cinemaName))].sort().map(c => `<option value="${c}">${c}</option>`).join('');
+  movieSel.innerHTML = '<option value="">全部电影</option>' + movies.map(m => `<option value="${m}">${m}</option>`).join('');
+
+  citySel.value = selCity;
+  cinemaSel.value = selCinema;
+  movieSel.value = selMovie;
+}
+
+function getFilteredData() {
+  const city = document.getElementById('cityFilter').value;
+  const cinema = document.getElementById('cinemaFilter').value;
+  const movie = document.getElementById('movieFilter').value;
+
+  return allData.filter(d => {
+    if (city && d.cityName !== city) return false;
+    if (cinema && d.cinemaName !== cinema) return false;
+    return true;
+  }).map(d => ({
+    ...d,
+    movies: d.movies.filter(m => !movie || m.name === movie)
+  })).filter(d => d.movies.length > 0);
+}
+
+function renderTable() {
+  const data = getFilteredData();
+  const tbody = document.getElementById('showsBody');
+  const empty = document.getElementById('emptyState');
+
+  if (data.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Flatten to rows with all needed fields
+  let rows = [];
+  data.forEach(cinema => {
+    cinema.movies.forEach(movie => {
+      movie.shows.forEach(show => {
+        const seatInfo = seatCountCache[show.seqNo];
+        let rowClass = '';
+        let total = 0, sold = 0, rate = 0;
+
+        if (seatInfo && seatInfo.total > 0) {
+          total = seatInfo.total;
+          sold = seatInfo.sold;
+          rate = sold / total;
+          if (rate >= 0.8) rowClass = 'full';
+          else if (rate >= 0.5) rowClass = 'warn';
+          else rowClass = 'good';
+        }
+
+        rows.push({
+          cityName: cinema.cityName,
+          cinemaName: cinema.cinemaName,
+          movieName: movie.name,
+          score: movie.score,
+          dur: movie.dur,
+          time: show.tm,
+          lang: show.lang,
+          hall: show.hall,
+          tp: show.tp,
+          price: show.price,
+          total, sold, rate,
+          seqNo: show.seqNo,
+          rowClass
+        });
+      });
+    });
+  });
+
+  // Sort if active
+  if (sortState.key) {
+    const key = sortState.key;
+    const dir = sortState.dir === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      let va = a[key], vb = b[key];
+      if (key === 'time') {
+        va = String(va).replace(':', '');
+        vb = String(vb).replace(':', '');
+      }
+      if (typeof va === 'number') return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+  }
+
+  let html = '';
+  rows.forEach(r => {
+    const ratePct = r.rate > 0 ? Math.round(r.rate * 100) + '%' : '-';
+    const priceDisplay = r.price ? '¥' + r.price + '元' : '-';
+    const scoreDisplay = r.score !== '0.0' ? r.score + '分' : '-';
+
+    html += `<tr onclick="showSeatMap('${r.seqNo}','${r.cinemaName}','${r.movieName}','${r.time}','${r.hall}')">`;
+    html += `<td>${r.cityName}</td>`;
+    html += `<td class="name">${r.cinemaName}</td>`;
+    html += `<td class="name">${r.movieName}</td>`;
+    html += `<td class="score">${scoreDisplay}</td>`;
+    html += `<td class="td-small">${r.dur}分钟</td>`;
+    html += `<td class="time">${r.time}</td>`;
+    html += `<td>${r.lang}</td>`;
+    html += `<td class="hall">${r.hall}</td>`;
+    html += `<td>${r.tp}</td>`;
+    html += `<td class="price">${priceDisplay}</td>`;
+    html += `<td>${r.total || '-'}</td>`;
+    html += `<td>${r.sold || '-'}</td>`;
+    const barW = r.rate > 0 ? Math.round(r.rate * 100) : 0;
+    const barColor = r.rate >= 0.5 ? (r.rate >= 0.8 ? '#e94560' : '#ffc107') : '#4ecca3';
+    html += `<td><span class="seat-bar" style="background:#eee"><span class="seat-bar-fill" style="width:${barW}px;background:${barColor}"></span></span>${ratePct}</td>`;
+    html += '</tr>';
+  });
+
+  tbody.innerHTML = html;
+}
+
+document.getElementById('cinemaFilter').addEventListener('change', renderTable);
+
+document.getElementById('cityFilter').addEventListener('change', () => {
+  updateCinemaFilter();
+});
+
+document.getElementById('movieFilter').addEventListener('change', renderTable);
+
+function updateCinemaFilter() {
+  const cityId = document.getElementById('cityFilter').value;
+  const cinemaSel = document.getElementById('cinemaFilter');
+  const movies = [...new Set(allData.flatMap(d => d.movies.map(m => m.name)))].sort();
+
+  // Get cinema options from config
+  fetch('/api/cinemas').then(res => res.json()).then(json => {
+    if (!json.success) return;
+    const cinemas = json.data.cinemas;
+    const filtered = cityId ? cinemas.filter(c => c.cityId == cityId) : cinemas;
+    cinemaSel.innerHTML = '<option value="">全部影院</option>' + filtered.map(c => `<option value="${c.cinemaId}">${c.name}</option>`).join('');
+  });
+
+  // Update movie filter
+  const movieSel = document.getElementById('movieFilter');
+  const data = getFilteredData();
+  const availMovies = [...new Set(data.flatMap(d => d.movies.map(m => m.name)))].sort();
+  movieSel.innerHTML = '<option value="">全部电影</option>' + availMovies.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  seatCountCache = {};
+  await loadShows();
+  await loadSeatCountsForFiltered();
+  renderTable();
+});
+
+async function showSeatMap(seqNo, cinemaName, movieName, time, hall) {
+  const modal = document.getElementById('seatMapModal');
+  const content = document.getElementById('seatMapContent');
+  const title = document.getElementById('modalTitle');
+  title.textContent = `${cinemaName} - ${movieName} ${time} ${hall}`;
+  content.innerHTML = '<div class="loading">加载座位图...</div>';
+  modal.classList.add('show');
+
+  try {
+    const res = await fetch(`/api/seat-map?seqNo=${seqNo}&ticketCount=2`);
+    const json = await res.json();
+
+    if (!json.success) {
+      content.innerHTML = `<div class="error-msg">获取座位图失败: ${json.error?.message || '请先登录猫眼账号'}</div>`;
+      return;
+    }
+
+    const d = json.data;
+    const seats = d.seatMapText;
+
+    let seatHtml = seats || '座位图不可用';
+
+    if (d.recommendedSeats && d.recommendedSeats.length > 0) {
+      seatHtml += '\n\n推荐座位：' + d.recommendedSeats.map(s => `${s.rowNum}排${s.columnId}座 ¥${s.price}元`).join('、');
+    }
+    if (d.priceInfo) {
+      seatHtml += '\n' + d.priceInfo;
+    }
+
+    content.innerHTML = `<pre class="seat-map">${seatHtml}</pre>`;
+  } catch (e) {
+    content.innerHTML = `<div class="error-msg">加载失败: ${e.message}</div>`;
+  }
+}
+
+function closeModal() {
+  document.getElementById('seatMapModal').classList.remove('show');
+}
+
+document.getElementById('seatMapModal').addEventListener('click', (e) => {
+  if (e.target.id === 'seatMapModal') closeModal();
+});
+
+let sortState = { key: null, dir: null };
+
+document.querySelectorAll('th[data-key]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortState.key === key) {
+      sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortState.key = key;
+      sortState.dir = 'asc';
+    }
+    document.querySelectorAll('th[data-key]').forEach(t => t.dataset.sort = '');
+    th.dataset.sort = sortState.dir;
+    renderTable();
+  });
+});
+
+// Initial load - show empty state, populate filters from config
+async function initFilters() {
+  try {
+    const res = await fetch('/api/cinemas');
+    const json = await res.json();
+    if (!json.success) return;
+
+    const cities = json.data.cities;
+    const cinemas = json.data.cinemas;
+    const citySel = document.getElementById('cityFilter');
+    const cinemaSel = document.getElementById('cinemaFilter');
+
+    citySel.innerHTML = '<option value="">全部城市</option>' + cities.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    cinemaSel.innerHTML = '<option value="">全部影院</option>' + cinemas.map(c => `<option value="${c.cinemaId}">${c.name}</option>`).join('');
+  } catch (e) {
+    console.warn('Failed to load config:', e.message);
+  }
+
+  // Try to restore cached shows + seat counts from localStorage
+  const cached = loadFromStorage();
+  if (cached && cached.allData && cached.allData.length > 0) {
+    allData = cached.allData;
+    if (cached.seatCounts) {
+      seatCountCache = cached.seatCounts;
+    }
+    renderTable();
+  }
+}
+
+initFilters();
+
+async function checkLoginStatus() {
+  try {
+    const res = await fetch('/api/auth-status');
+    const json = await res.json();
+    const statusEl = document.getElementById('loginStatus');
+    if (json.data?.loggedIn) {
+      statusEl.textContent = '已登录: ' + (json.data.userName || '');
+      statusEl.style.display = 'inline';
+    } else {
+      statusEl.style.display = 'none';
+    }
+  } catch (e) {
+    console.warn('Auth status check failed:', e.message);
+  }
+}
+
+checkLoginStatus();
+
+function closeLoginModal() {
+  document.getElementById('loginModal').classList.remove('show');
+}
+
+document.getElementById('loginBtn').addEventListener('click', () => {
+  document.getElementById('loginModal').classList.add('show');
+  document.getElementById('authTokenInput').value = '';
+  document.getElementById('loginError').style.display = 'none';
+});
+
+document.getElementById('doLoginBtn').addEventListener('click', async () => {
+  const token = document.getElementById('authTokenInput').value.trim();
+  if (!token) {
+    document.getElementById('loginError').textContent = '请输入 Token';
+    document.getElementById('loginError').style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('doLoginBtn');
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+  try {
+    const res = await fetch('/api/auth-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    });
+    const json = await res.json();
+    if (json.success) {
+      closeLoginModal();
+      checkLoginStatus();
+    } else {
+      document.getElementById('loginError').textContent = json.error?.message || '登录失败';
+      document.getElementById('loginError').style.display = 'block';
+    }
+  } catch (e) {
+    document.getElementById('loginError').textContent = e.message;
+    document.getElementById('loginError').style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '确认登录';
+  }
+});
+</script>
+</body>
+</html>
