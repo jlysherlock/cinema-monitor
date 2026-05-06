@@ -61,6 +61,14 @@ tr.full:hover td{background:#ffebee!important}
 .legend .sq{color:#4ecca3}
 .legend .sd{color:#ddd}
 .legend .so{color:#e94560}
+.analysis-section{margin-bottom:24px}
+.analysis-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.analysis-card{background:#f5f5f5;padding:12px;border-radius:8px;text-align:center}
+.analysis-card .num{font-size:24px;font-weight:700;color:#e94560}
+.analysis-card .label{color:#666;font-size:12px}
+.analysis-table{width:100%;border-collapse:collapse;font-size:12px}
+.analysis-table th{background:#f0f0f5;padding:8px;font-weight:600;text-align:left}
+.analysis-table td{padding:8px;border-bottom:1px solid #f0f0f0}
 </style>
 </head>
 <body>
@@ -68,11 +76,10 @@ tr.full:hover td{background:#ffebee!important}
   <h1>🎬 影院场次监控 <span>| 实时可售</span></h1>
   <div class="controls">
     <input type="date" id="dateFilter" style="padding:6px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px">
-    <select id="cityFilter"><option value="">全部城市</option></select>
     <select id="cinemaFilter"><option value="">全部影院</option></select>
-    <select id="movieFilter"><option value="">全部电影</option></select>
     <button id="refreshBtn">🔍 查询</button>
     <button id="loginBtn">🔐 登录猫眼</button>
+    <button id="analysisBtn">📊 分析报告</button>
     <span id="loginStatus" style="color:#4ecca3;font-size:12px;display:none"></span>
   </div>
 </header>
@@ -85,14 +92,13 @@ tr.full:hover td{background:#ffebee!important}
     <table id="showsTable">
       <thead>
         <tr>
-          <th data-key="cityName" data-sort="">城市</th>
           <th data-key="cinemaName" data-sort="">影院</th>
-          <th data-key="movieName" data-sort="">电影</th>
-          <th data-key="score" data-sort="">评分</th>
+          <th><select id="movieFilter" style="width:100%;border:none;background:transparent;font-size:13px;font-weight:600;cursor:pointer"><option value="">电影</option></select></th>
           <th data-key="dur" data-sort="">时长</th>
-          <th data-key="time" data-sort="">时间</th>
+          <th data-key="time" data-sort="asc">开始</th>
+          <th>结束</th>
           <th data-key="lang" data-sort="">语言</th>
-          <th data-key="hall" data-sort="">影厅</th>
+          <th><select id="hallFilter" style="width:100%;border:none;background:transparent;font-size:13px;font-weight:600;cursor:pointer"><option value="">全部影厅</option></select></th>
           <th data-key="tp" data-sort="">版本</th>
           <th data-key="price" data-sort="">票价</th>
           <th data-key="total" data-sort="">总座位</th>
@@ -136,6 +142,15 @@ tr.full:hover td{background:#ffebee!important}
     </div>
   </div>
 </div>
+<div class="modal" id="analysisModal">
+  <div class="modal-box" style="max-width:900px">
+    <div class="modal-header">
+      <h2>📊 数据分析报告</h2>
+      <button class="modal-close" onclick="closeAnalysisModal()">×</button>
+    </div>
+    <div id="analysisContent" style="padding:8px 0;max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
 <script>
 let allData = [];
 let autoInterval = null;
@@ -152,7 +167,6 @@ function saveToStorage() {
     movies: c.movies.map(m => ({
       movieId: m.movieId,
       name: m.name,
-      score: m.score,
       dur: m.dur,
       shows: m.shows
     }))
@@ -172,7 +186,7 @@ function loadFromStorage() {
 const REFRESH_MS = 60 * 1000;
 
 async function loadShows() {
-  document.getElementById('showsBody').innerHTML = '<tr><td colspan="13" class="loading">加载中...</td></tr>';
+  document.getElementById('showsBody').innerHTML = '<tr><td colspan="12" class="loading">加载中...</td></tr>';
   seatCountCache = {};
   try {
     const dateFilter = document.getElementById('dateFilter').value;
@@ -189,7 +203,7 @@ async function loadShows() {
     allData.forEach(c => c.movies.forEach(m => totalShows += m.shows.length));
     document.getElementById('totalShows').textContent = totalShows;
   } catch (e) {
-    document.getElementById('showsBody').innerHTML = `<tr><td colspan="13" class="error-msg">加载失败: ${e.message}</td></tr>`;
+    document.getElementById('showsBody').innerHTML = `<tr><td colspan="12" class="error-msg">加载失败: ${e.message}</td></tr>`;
   }
 }
 
@@ -235,38 +249,46 @@ async function loadSeatCountsForFiltered() {
 }
 
 function updateFilters() {
-  const city = document.getElementById('cityFilter').value;
-  const movies = [...new Set(allData.flatMap(d => d.movies.map(m => m.name)))].sort();
-
-  const citySel = document.getElementById('cityFilter');
   const cinemaSel = document.getElementById('cinemaFilter');
   const movieSel = document.getElementById('movieFilter');
-
-  const selCity = citySel.value;
+  const hallSel = document.getElementById('hallFilter');
   const selCinema = cinemaSel.value;
   const selMovie = movieSel.value;
+  const selHall = hallSel.value;
 
-  citySel.innerHTML = '<option value="">全部城市</option>' + [...new Set(allData.map(d => d.cityName))].sort().map(c => `<option value="${c}">${c}</option>`).join('');
-  cinemaSel.innerHTML = '<option value="">全部影院</option>' + [...new Set(allData.filter(d => !city || d.cityName === city).map(d => d.cinemaName))].sort().map(c => `<option value="${c}">${c}</option>`).join('');
+  fetch('/api/cinemas').then(res => res.json()).then(json => {
+    if (!json.success) return;
+    const cinemas = json.data.cinemas;
+    cinemaSel.innerHTML = '<option value="">全部影院</option>' + cinemas.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    cinemaSel.value = selCinema;
+  });
+
+  const movies = [...new Set(allData.flatMap(d => d.movies.map(m => m.name)))].sort();
   movieSel.innerHTML = '<option value="">全部电影</option>' + movies.map(m => `<option value="${m}">${m}</option>`).join('');
-
-  citySel.value = selCity;
-  cinemaSel.value = selCinema;
   movieSel.value = selMovie;
+
+  const halls = [...new Set(allData.flatMap(d => d.movies.flatMap(m => m.shows.map(s => s.hall))))].sort();
+  hallSel.innerHTML = '<option value="">全部影厅</option>' + halls.map(h => `<option value="${h}">${h}</option>`).join('');
+  hallSel.value = selHall;
 }
 
 function getFilteredData() {
-  const city = document.getElementById('cityFilter').value;
   const cinema = document.getElementById('cinemaFilter').value;
   const movie = document.getElementById('movieFilter').value;
+  const hall = document.getElementById('hallFilter').value;
 
   return allData.filter(d => {
-    if (city && d.cityName !== city) return false;
     if (cinema && d.cinemaName !== cinema) return false;
     return true;
   }).map(d => ({
     ...d,
     movies: d.movies.filter(m => !movie || m.name === movie)
+  })).filter(d => d.movies.length > 0).map(d => ({
+    ...d,
+    movies: d.movies.map(m => ({
+      ...m,
+      shows: m.shows.filter(s => !hall || s.hall === hall)
+    }))
   })).filter(d => d.movies.length > 0);
 }
 
@@ -278,9 +300,16 @@ function renderTable() {
   if (data.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    document.getElementById('totalCinemas').textContent = '0';
+    document.getElementById('totalShows').textContent = '0';
     return;
   }
   empty.style.display = 'none';
+
+  let totalShows = 0;
+  data.forEach(c => c.movies.forEach(m => totalShows += m.shows.length));
+  document.getElementById('totalCinemas').textContent = data.length;
+  document.getElementById('totalShows').textContent = totalShows;
 
   // Flatten to rows with all needed fields
   let rows = [];
@@ -304,7 +333,6 @@ function renderTable() {
           cityName: cinema.cityName,
           cinemaName: cinema.cinemaName,
           movieName: movie.name,
-          score: movie.score,
           dur: movie.dur,
           time: show.tm,
           lang: show.lang,
@@ -338,15 +366,16 @@ function renderTable() {
   rows.forEach(r => {
     const ratePct = r.rate > 0 ? Math.round(r.rate * 100) + '%' : '-';
     const priceDisplay = r.price ? '¥' + r.price + '元' : '-';
-    const scoreDisplay = r.score !== '0.0' ? r.score + '分' : '-';
+    const [h, m] = r.time.split(':').map(Number);
+    const endMins = h * 60 + m + (r.dur || 0);
+    const endTime = `${String(Math.floor(endMins / 60) % 24).padStart(2, '0')}:${String(endMins % 60).padStart(2, '0')}`;
 
     html += `<tr onclick="showSeatMap('${r.seqNo}','${r.cinemaName}','${r.movieName}','${r.time}','${r.hall}')">`;
-    html += `<td>${r.cityName}</td>`;
     html += `<td class="name">${r.cinemaName}</td>`;
     html += `<td class="name">${r.movieName}</td>`;
-    html += `<td class="score">${scoreDisplay}</td>`;
     html += `<td class="td-small">${r.dur}分钟</td>`;
     html += `<td class="time">${r.time}</td>`;
+    html += `<td class="time">${endTime}</td>`;
     html += `<td>${r.lang}</td>`;
     html += `<td class="hall">${r.hall}</td>`;
     html += `<td>${r.tp}</td>`;
@@ -362,32 +391,61 @@ function renderTable() {
   tbody.innerHTML = html;
 }
 
-document.getElementById('cinemaFilter').addEventListener('change', renderTable);
-
-document.getElementById('cityFilter').addEventListener('change', () => {
-  updateCinemaFilter();
+document.getElementById('cinemaFilter').addEventListener('change', () => {
+  allData = [];
+  seatCountCache = {};
+  document.getElementById('showsBody').innerHTML = '';
+  document.getElementById('emptyState').style.display = 'block';
 });
 
-document.getElementById('movieFilter').addEventListener('change', renderTable);
+document.getElementById('movieFilter').addEventListener('change', () => {
+  const movie = document.getElementById('movieFilter').value;
+  const hall = document.getElementById('hallFilter').value;
+  const movieSel = document.getElementById('movieFilter');
+  const hallSel = document.getElementById('hallFilter');
+  const selMovie = movieSel.value;
+  const selHall = hallSel.value;
+
+  const filteredData = allData.filter(d => !movie || d.movies.some(m => m.name === movie));
+  const movies = [...new Set(filteredData.flatMap(d => d.movies.map(m => m.name)))].sort();
+  const halls = [...new Set(filteredData.flatMap(d => d.movies.flatMap(m => m.shows.map(s => s.hall))))].sort();
+  movieSel.innerHTML = '<option value="">电影</option>' + movies.map(m => `<option value="${m}">${m}</option>`).join('');
+  hallSel.innerHTML = '<option value="">全部影厅</option>' + halls.map(h => `<option value="${h}">${h}</option>`).join('');
+  movieSel.value = selMovie;
+  hallSel.value = selHall;
+
+  renderTable();
+});
+
+document.getElementById('hallFilter').addEventListener('change', () => {
+  const movie = document.getElementById('movieFilter').value;
+  const hall = document.getElementById('hallFilter').value;
+  const movieSel = document.getElementById('movieFilter');
+  const hallSel = document.getElementById('hallFilter');
+  const selMovie = movieSel.value;
+  const selHall = hallSel.value;
+
+  const filteredData = allData.filter(d => d.movies.some(m => m.shows.some(s => !hall || s.hall === hall)));
+  const movies = [...new Set(filteredData.flatMap(d => d.movies.map(m => m.name)))].sort();
+  const halls = [...new Set(allData.flatMap(d => d.movies.flatMap(m => m.shows.map(s => s.hall))))].sort();
+  movieSel.innerHTML = '<option value="">电影</option>' + movies.map(m => `<option value="${m}">${m}</option>`).join('');
+  hallSel.innerHTML = '<option value="">全部影厅</option>' + halls.map(h => `<option value="${h}">${h}</option>`).join('');
+  movieSel.value = selMovie;
+  hallSel.value = selHall;
+
+  renderTable();
+});
+
 
 function updateCinemaFilter() {
-  const cityId = document.getElementById('cityFilter').value;
   const cinemaSel = document.getElementById('cinemaFilter');
-  const movies = [...new Set(allData.flatMap(d => d.movies.map(m => m.name)))].sort();
 
   // Get cinema options from config
   fetch('/api/cinemas').then(res => res.json()).then(json => {
     if (!json.success) return;
     const cinemas = json.data.cinemas;
-    const filtered = cityId ? cinemas.filter(c => c.cityId == cityId) : cinemas;
-    cinemaSel.innerHTML = '<option value="">全部影院</option>' + filtered.map(c => `<option value="${c.cinemaId}">${c.name}</option>`).join('');
+    cinemaSel.innerHTML = '<option value="">全部影院</option>' + cinemas.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
   });
-
-  // Update movie filter
-  const movieSel = document.getElementById('movieFilter');
-  const data = getFilteredData();
-  const availMovies = [...new Set(data.flatMap(d => d.movies.map(m => m.name)))].sort();
-  movieSel.innerHTML = '<option value="">全部电影</option>' + availMovies.map(m => `<option value="${m}">${m}</option>`).join('');
 }
 
 document.getElementById('refreshBtn').addEventListener('click', async () => {
@@ -440,7 +498,7 @@ document.getElementById('seatMapModal').addEventListener('click', (e) => {
   if (e.target.id === 'seatMapModal') closeModal();
 });
 
-let sortState = { key: null, dir: null };
+let sortState = { key: 'time', dir: 'asc' };
 
 document.querySelectorAll('th[data-key]').forEach(th => {
   th.addEventListener('click', () => {
@@ -464,28 +522,16 @@ async function initFilters() {
     const json = await res.json();
     if (!json.success) return;
 
-    const cities = json.data.cities;
     const cinemas = json.data.cinemas;
-    const citySel = document.getElementById('cityFilter');
     const cinemaSel = document.getElementById('cinemaFilter');
 
-    citySel.innerHTML = '<option value="">全部城市</option>' + cities.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    cinemaSel.innerHTML = '<option value="">全部影院</option>' + cinemas.map(c => `<option value="${c.cinemaId}">${c.name}</option>`).join('');
+    cinemaSel.innerHTML = '<option value="">全部影院</option>' + cinemas.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
   } catch (e) {
     console.warn('Failed to load config:', e.message);
   }
-
-  // Try to restore cached shows + seat counts from localStorage
-  const cached = loadFromStorage();
-  if (cached && cached.allData && cached.allData.length > 0) {
-    allData = cached.allData;
-    if (cached.seatCounts) {
-      seatCountCache = cached.seatCounts;
-    }
-    renderTable();
-  }
 }
 
+document.getElementById('dateFilter').valueAsDate = new Date();
 initFilters();
 
 async function checkLoginStatus() {
@@ -505,6 +551,153 @@ async function checkLoginStatus() {
 }
 
 checkLoginStatus();
+
+function closeAnalysisModal() {
+  document.getElementById('analysisModal').classList.remove('show');
+}
+
+document.getElementById('analysisModal').addEventListener('click', (e) => {
+  if (e.target.id === 'analysisModal') closeAnalysisModal();
+});
+
+document.getElementById('analysisBtn').addEventListener('click', () => {
+  showAnalysisReport();
+});
+
+function showAnalysisReport() {
+  if (allData.length === 0) {
+    alert('请先查询数据');
+    return;
+  }
+
+  const modal = document.getElementById('analysisModal');
+  const content = document.getElementById('analysisContent');
+  modal.classList.add('show');
+
+  const data = getFilteredData();
+
+  // 1. Overview
+  let totalShows = 0, totalSeats = 0, totalSold = 0;
+  const cinemaStats = {};
+  const movieStats = {};
+  const hallStats = {};
+  const timeStats = { morning: 0, afternoon: 0, evening: 0, late: 0 };
+  const priceStats = [];
+
+  data.forEach(cinema => {
+    cinemaStats[cinema.cinemaName] = { shows: 0, seats: 0, sold: 0 };
+    cinema.movies.forEach(movie => {
+      if (!movieStats[movie.name]) {
+        movieStats[movie.name] = { shows: 0, seats: 0, sold: 0, halls: new Set(), prices: [] };
+      }
+      movie.shows.forEach(show => {
+        totalShows++;
+        cinemaStats[cinema.cinemaName].shows++;
+        movieStats[movie.name].shows++;
+        movieStats[movie.name].halls.add(show.hall);
+
+        const seatInfo = seatCountCache[show.seqNo];
+        let seats = 0, sold = 0;
+        if (seatInfo && seatInfo.total > 0) {
+          seats = seatInfo.total;
+          sold = seatInfo.sold;
+          totalSeats += seats;
+          totalSold += sold;
+          cinemaStats[cinema.cinemaName].seats += seats;
+          cinemaStats[cinema.cinemaName].sold += sold;
+          movieStats[movie.name].seats += seats;
+          movieStats[movie.name].sold += sold;
+        }
+
+        if (!hallStats[show.hall]) hallStats[show.hall] = { shows: 0, seats: 0, sold: 0 };
+        hallStats[show.hall].shows++;
+        hallStats[show.hall].seats += seats;
+        hallStats[show.hall].sold += sold;
+
+        if (show.price) priceStats.push(show.price);
+
+        const hour = parseInt(show.tm.split(':')[0]);
+        if (hour < 12) timeStats.morning++;
+        else if (hour < 17) timeStats.afternoon++;
+        else if (hour < 21) timeStats.evening++;
+        else timeStats.late++;
+      });
+    });
+  });
+
+  const avgOccupancy = totalSeats > 0 ? (totalSold / totalSeats * 100).toFixed(1) : '0.0';
+
+  let html = '<div style="font-size:13px">';
+
+  // Overview section
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">📈 总览</h3>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">`;
+  html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:24px;font-weight:700;color:#e94560">${totalShows}</div><div style="color:#666;font-size:12px">总场次</div></div>`;
+  html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:24px;font-weight:700;color:#4ecca3">${data.length}</div><div style="color:#666;font-size:12px">影院数</div></div>`;
+  html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:24px;font-weight:700;color:#1a1a2e">${Object.keys(movieStats).length}</div><div style="color:#666;font-size:12px">电影数</div></div>`;
+  html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:24px;font-weight:700;color:#e94560">${avgOccupancy}%</div><div style="color:#666;font-size:12px">平均上座率</div></div>`;
+  html += `</div>`;
+
+  // Cinema breakdown
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">🏢 影院明细</h3>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">`;
+  html += `<tr style="background:#f0f0f5"><td style="padding:8px;font-weight:600">影院</td><td style="padding:8px;font-weight:600;text-align:right">场次</td><td style="padding:8px;font-weight:600;text-align:right">总座位</td><td style="padding:8px;font-weight:600;text-align:right">已售</td><td style="padding:8px;font-weight:600;text-align:right">上座率</td></tr>`;
+  const sortedCinemas = Object.entries(cinemaStats).sort((a, b) => b[1].shows - a[1].shows);
+  sortedCinemas.forEach(([name, stats], i) => {
+    const occ = stats.seats > 0 ? (stats.sold / stats.seats * 100).toFixed(1) : '0.0';
+    html += `<tr style="background:${i % 2 === 0 ? '#fff' : '#fafafa'}"><td style="padding:8px">${name}</td><td style="padding:8px;text-align:right">${stats.shows}</td><td style="padding:8px;text-align:right">${stats.seats || '-'}</td><td style="padding:8px;text-align:right">${stats.sold || '-'}</td><td style="padding:8px;text-align:right;color:${occ >= 50 ? '#e94560' : '#4ecca3'}">${occ}%</td></tr>`;
+  });
+  html += `</table>`;
+
+  // Movie breakdown
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">🎬 电影明细</h3>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">`;
+  html += `<tr style="background:#f0f0f5"><td style="padding:8px;font-weight:600">电影</td><td style="padding:8px;font-weight:600;text-align:right">场次</td><td style="padding:8px;font-weight:600;text-align:right">影厅类型</td><td style="padding:8px;font-weight:600;text-align:right">票价区间</td></tr>`;
+  const sortedMovies = Object.entries(movieStats).sort((a, b) => b[1].shows - a[1].shows);
+  sortedMovies.forEach(([name, stats], i) => {
+    const priceRange = stats.prices.length > 0 ? `${Math.min(...stats.prices)}-${Math.max(...stats.prices)}元` : '-';
+    html += `<tr style="background:${i % 2 === 0 ? '#fff' : '#fafafa'}"><td style="padding:8px">${name}</td><td style="padding:8px;text-align:right">${stats.shows}</td><td style="padding:8px;text-align:right">${[...stats.halls].join(', ')}</td><td style="padding:8px;text-align:right">${priceRange}</td></tr>`;
+  });
+  html += `</table>`;
+
+  // Time distribution
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">⏰ 时段分布</h3>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">`;
+  html += `<div style="background:#fff8e1;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700">${timeStats.morning}</div><div style="color:#666;font-size:12px">早场 (12点前)</div><div style="font-size:11px;color:#999">${totalShows > 0 ? (timeStats.morning / totalShows * 100).toFixed(1) : 0}%</div></div>`;
+  html += `<div style="background:#e8f5e9;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700">${timeStats.afternoon}</div><div style="color:#666;font-size:12px">下午 (12-17点)</div><div style="font-size:11px;color:#999">${totalShows > 0 ? (timeStats.afternoon / totalShows * 100).toFixed(1) : 0}%</div></div>`;
+  html += `<div style="background:#ffebee;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700">${timeStats.evening}</div><div style="color:#666;font-size:12px">晚场 (17-21点)</div><div style="font-size:11px;color:#999">${totalShows > 0 ? (timeStats.evening / totalShows * 100).toFixed(1) : 0}%</div></div>`;
+  html += `<div style="background:#e3f2fd;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700">${timeStats.late}</div><div style="color:#666;font-size:12px">深夜 (21点后)</div><div style="font-size:11px;color:#999">${totalShows > 0 ? (timeStats.late / totalShows * 100).toFixed(1) : 0}%</div></div>`;
+  html += `</div>`;
+
+  // Hall breakdown
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">🎦 影厅类型</h3>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">`;
+  html += `<tr style="background:#f0f0f5"><td style="padding:8px;font-weight:600">影厅</td><td style="padding:8px;font-weight:600;text-align:right">场次</td><td style="padding:8px;font-weight:600;text-align:right">总座位</td><td style="padding:8px;font-weight:600;text-align:right">已售</td><td style="padding:8px;font-weight:600;text-align:right">上座率</td></tr>`;
+  const sortedHalls = Object.entries(hallStats).sort((a, b) => b[1].shows - a[1].shows);
+  sortedHalls.forEach(([name, stats], i) => {
+    const occ = stats.seats > 0 ? (stats.sold / stats.seats * 100).toFixed(1) : '0.0';
+    html += `<tr style="background:${i % 2 === 0 ? '#fff' : '#fafafa'}"><td style="padding:8px">${name}</td><td style="padding:8px;text-align:right">${stats.shows}</td><td style="padding:8px;text-align:right">${stats.seats || '-'}</td><td style="padding:8px;text-align:right">${stats.sold || '-'}</td><td style="padding:8px;text-align:right;color:${occ >= 50 ? '#e94560' : '#4ecca3'}">${occ}%</td></tr>`;
+  });
+  html += `</table>`;
+
+  // Price analysis
+  html += `<h3 style="margin:16px 0 8px;color:#1a1a2e;border-bottom:1px solid #eee;padding-bottom:8px">💰 价格分析</h3>`;
+  if (priceStats.length > 0) {
+    const minPrice = Math.min(...priceStats);
+    const maxPrice = Math.max(...priceStats);
+    const avgPrice = (priceStats.reduce((a, b) => a + b, 0) / priceStats.length).toFixed(1);
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">`;
+    html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:#4ecca3">¥${minPrice}</div><div style="color:#666;font-size:12px">最低票价</div></div>`;
+    html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:#1a1a2e">¥${avgPrice}</div><div style="color:#666;font-size:12px">平均票价</div></div>`;
+    html += `<div style="background:#f5f5f5;padding:12px;border-radius:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:#e94560">¥${maxPrice}</div><div style="color:#666;font-size:12px">最高票价</div></div>`;
+    html += `</div>`;
+  } else {
+    html += `<div style="color:#999;text-align:center;padding:20px">暂无价格数据</div>`;
+  }
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
 
 function closeLoginModal() {
   document.getElementById('loginModal').classList.remove('show');

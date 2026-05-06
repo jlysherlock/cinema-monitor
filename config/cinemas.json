@@ -12,9 +12,8 @@
     { "cinemaId": "10540", "name": "金逸影城（繁花店）", "cityId": 80 },
     { "cinemaId": "5481", "name": "金逸影城（永捷店）", "cityId": 80 },
     { "cinemaId": "1034", "name": "金逸影城（文化宫店）", "cityId": 80 },
+    { "cinemaId": "10555", "name": "金逸影城（影视中心店）", "cityId": 80 },
     { "cinemaId": "16972", "name": "金逸影城（无锡爱琴海店）", "cityId": 52 },
-    { "cinemaId": "938", "name": "金逸影城（无锡方圆荟IMAX店）", "cityId": 52 },
-    { "cinemaId": "9857", "name": "金逸影城（光美荟聚IMAX激光店）", "cityId": 52 },
-    { "cinemaId": "24195", "name": "金逸影城（美嘉城IMAX店）", "cityId": 52 }
+    { "cinemaId": "938", "name": "金逸影城（无锡方圆荟IMAX店）", "cityId": 52 },    { "cinemaId": "24195", "name": "金逸影城（美嘉城IMAX店）", "cityId": 52 }
   ]
 }
