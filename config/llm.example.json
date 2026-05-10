@@ -1,0 +1,9 @@
+﻿{
+  "provider": "openai-compatible",
+  "baseUrl": "https://api.openai.com/v1",
+  "model": "gpt-4.1-mini",
+  "apiKey": "",
+  "temperature": 0.4,
+  "maxTokens": 1200,
+  "systemPrompt": "你是一名资深影院排片分析顾问。你只能依据提供的数据进行判断，指出场次安排的合理性、潜在问题和可执行的排片建议。"
+}
