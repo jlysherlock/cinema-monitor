@@ -7,7 +7,8 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f4f6f8;color:#1f2937}
-header{background:linear-gradient(135deg,#111827,#1f2937);padding:18px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+header,main,.status{width:min(1500px,calc(100vw - 48px));margin:0 auto}
+header{background:linear-gradient(135deg,#111827,#1f2937);padding:18px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;border-radius:0 0 16px 16px}
 header h1{font-size:20px;color:#fff;font-weight:700}
 header h1 span{color:#fca5a5}
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -18,19 +19,19 @@ button:hover{background:#dc2626;transform:translateY(-1px)}
 button:disabled{opacity:.65;cursor:not-allowed;transform:none}
 .secondary-btn{background:#334155}
 .secondary-btn:hover{background:#1e293b}
-.status{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 24px;background:#1f2937;color:#d1d5db;font-size:13px}
+.status{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 24px;background:#1f2937;color:#d1d5db;font-size:13px;border-radius:0 0 16px 16px}
 .status strong{color:#fff}
 .status span:last-child{color:#86efac}
-main{padding:18px 24px}
+main{padding:18px 0 28px}
 .table-wrap{background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,.08);overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead tr{background:#f8fafc}
 th,td{padding:11px 12px;text-align:left;white-space:nowrap;border-bottom:1px solid #edf2f7;vertical-align:top}
 th{position:sticky;top:0;z-index:2;color:#475569;font-weight:700;cursor:pointer;user-select:none}
 th:hover{background:#eef2ff}
-th[data-sort]::after{content:" \2195";opacity:.35;font-size:11px}
-th[data-sort="asc"]::after{content:" \2191";opacity:1}
-th[data-sort="desc"]::after{content:" \2193";opacity:1}
+th[data-sort]::after{content:" ↕";opacity:.35;font-size:11px}
+th[data-sort="asc"]::after{content:" ↑";opacity:1}
+th[data-sort="desc"]::after{content:" ↓";opacity:1}
 tbody tr{transition:background .2s ease}
 tbody tr:hover{background:#fff1f2;cursor:pointer}
 tbody tr.good td{background:#ecfdf5}
@@ -82,7 +83,7 @@ a{color:#dc2626}
 }
 @media (max-width:640px){
   body{background:#fff}
-  header,.status,main{padding-left:14px;padding-right:14px}
+  header,main,.status{width:min(100vw - 20px,100%)}
   .controls{width:100%}
   .controls > *{flex:1 1 calc(50% - 8px);min-width:140px}
 }
@@ -197,7 +198,7 @@ a{color:#dc2626}
       </label>
     </div>
     <p class="helper" style="margin-top:12px">
-      支持 OpenAI 兼容接口。用于基于当前筛选结果分析场次合理性，并输出排片优化建议。
+      支持 OpenAI 兼容接口，用于基于当前筛选结果分析场次合理性，并输出排片优化建议。
     </p>
     <div id="llmConfigError" style="display:none;margin-top:10px;font-size:12px;color:#dc2626"></div>
     <button id="saveLlmConfigBtn" type="button" style="margin-top:14px;width:100%">保存模型配置</button>
@@ -560,7 +561,11 @@ async function saveLlmConfig() {
 async function loadShows() {
   setLoading('正在加载场次...');
   const date = refs.dateFilter.value || getLocalDateString();
-  const response = await fetch(`/api/shows?date=${encodeURIComponent(date)}`);
+  const params = new URLSearchParams({ date });
+  if (refs.cinemaFilter.value) {
+    params.set('cinemaName', refs.cinemaFilter.value);
+  }
+  const response = await fetch(`/api/shows?${params.toString()}`);
   const payload = await response.json();
 
   if (!payload.success) {
@@ -569,7 +574,9 @@ async function loadShows() {
 
   state.allData = Array.isArray(payload.data) ? payload.data : [];
   state.seatCountCache = {};
-  refs.lastUpdate.textContent = `场次已加载 ${new Date().toLocaleTimeString()}，正在补座位数据`;
+  refs.lastUpdate.textContent = refs.cinemaFilter.value
+    ? `已加载 ${refs.cinemaFilter.value}，正在补座位数据`
+    : `已加载全部影院 ${new Date().toLocaleTimeString()}，正在补座位数据`;
   updateFilters();
   renderTable();
   saveToStorage();
@@ -610,7 +617,7 @@ async function loadMissingSeatCountsProgressively(data = getFilteredData()) {
 
       Object.assign(state.seatCountCache, payload.data || {});
       loaded += chunk.length;
-      refs.lastUpdate.textContent = `场次已加载，座位进度 ${loaded}/${seqNos.length}`;
+      refs.lastUpdate.textContent = `座位进度 ${loaded}/${seqNos.length}`;
       saveToStorage();
       renderTable();
     }
@@ -618,7 +625,7 @@ async function loadMissingSeatCountsProgressively(data = getFilteredData()) {
     refs.lastUpdate.textContent = `全部完成 ${new Date().toLocaleTimeString()}`;
   } catch (error) {
     console.warn('Seat counts failed:', error.message);
-    refs.lastUpdate.textContent = '场次已加载，部分座位数据失败';
+    refs.lastUpdate.textContent = '场次已加载，但部分座位数据失败';
   } finally {
     state.loadingSeatCounts = false;
   }
@@ -628,7 +635,7 @@ async function refreshData() {
   refs.refreshBtn.disabled = true;
   try {
     await loadShows();
-    void loadMissingSeatCountsProgressively(state.allData);
+    void loadMissingSeatCountsProgressively();
   } catch (error) {
     refs.showsBody.innerHTML = `<tr><td colspan="6" class="loading error-msg">${escapeHtml(error.message)}</td></tr>`;
     refs.totalShows.textContent = '0';
@@ -842,10 +849,10 @@ function showAnalysisReport() {
     <div class="analysis-section">
       <h3>时段分布</h3>
       <div class="analysis-grid">
-        <div class="analysis-card"><div class="num">${timeStats.morning}</div><div class="label">早场（12点前）</div></div>
-        <div class="analysis-card"><div class="num">${timeStats.afternoon}</div><div class="label">下午（12-17点）</div></div>
-        <div class="analysis-card"><div class="num">${timeStats.evening}</div><div class="label">晚场（17-21点）</div></div>
-        <div class="analysis-card"><div class="num">${timeStats.late}</div><div class="label">夜场（21点后）</div></div>
+        <div class="analysis-card"><div class="num">${timeStats.morning}</div><div class="label">早场 12点前</div></div>
+        <div class="analysis-card"><div class="num">${timeStats.afternoon}</div><div class="label">下午 12-17点</div></div>
+        <div class="analysis-card"><div class="num">${timeStats.evening}</div><div class="label">晚场 17-21点</div></div>
+        <div class="analysis-card"><div class="num">${timeStats.late}</div><div class="label">夜场 21点后</div></div>
       </div>
     </div>
     <div class="analysis-section">
@@ -1008,7 +1015,7 @@ async function init() {
   await checkLoginStatus();
 
   if (hasCache) {
-    void loadMissingSeatCountsProgressively(state.allData);
+    void loadMissingSeatCountsProgressively();
   }
 }
 

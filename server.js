@@ -461,14 +461,22 @@ app.get('/api/shows', async (req, res) => {
   try {
     const config = loadConfig();
     const dateParam = req.query.date;
+    const cinemaNameParam = String(req.query.cinemaName || '').trim();
     const targetDate = dateParam || localDateString();
     const results = [];
     const errors = [];
     const cityNames = new Map(config.cities.map((city) => [city.id, city.name]));
+    const targetCinemas = cinemaNameParam
+      ? config.cinemas.filter((cinema) => cinema.name === cinemaNameParam)
+      : config.cinemas;
+
+    if (cinemaNameParam && targetCinemas.length === 0) {
+      return res.status(400).json({ success: false, error: '指定影院不存在' });
+    }
 
     const BATCH_SIZE = 12;
-    for (let i = 0; i < config.cinemas.length; i += BATCH_SIZE) {
-      const batch = config.cinemas.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < targetCinemas.length; i += BATCH_SIZE) {
+      const batch = targetCinemas.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.allSettled(
         batch.map(async (cinema) => {
           try {
@@ -499,7 +507,7 @@ app.get('/api/shows', async (req, res) => {
                     dt: pl.dt,
                     lang: pl.lang,
                     tp: pl.tp,
-                    hall: pl.th || '鏅€氬巺',
+                    hall: pl.th || '普通厅',
                     price: pl.originPrice || ''
                   });
                 }
